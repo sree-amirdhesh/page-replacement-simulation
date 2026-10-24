@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Page Replacement Simulation</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: Arial, sans-serif; background: #f3f6fb; color: #172033; }
+  header { background: #173b70; color: white; padding: 26px 18px; text-align: center; }
+  header h1 { margin: 0 0 8px; font-size: clamp(1.5rem, 4vw, 2.2rem); }
+  header p { margin: 0; color: #dbeafe; }
+  main { max-width: 1100px; margin: 24px auto; padding: 0 16px 36px; }
+  .panel { background: white; border-radius: 14px; padding: 20px; margin-bottom: 18px; box-shadow: 0 4px 18px #14213d12; }
+  h2 { margin-top: 0; color: #173b70; font-size: 1.25rem; }
+  .controls { display: grid; grid-template-columns: 1fr 180px auto; gap: 12px; align-items: end; }
+  label { display: block; font-weight: 700; margin-bottom: 7px; font-size: .92rem; }
+  input { width: 100%; padding: 11px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 1rem; }
+  button { border: 0; border-radius: 8px; padding: 12px 16px; background: #2563eb; color: white; font-weight: 700; cursor: pointer; font-size: .95rem; }
+  button:hover { background: #1d4ed8; }
+  button.secondary { background: #e2e8f0; color: #172033; }
+  button.secondary:hover { background: #cbd5e1; }
+  .hint { color: #64748b; font-size: .88rem; margin: 10px 0 0; }
+  .error { color: #b91c1c; margin-top: 10px; font-weight: 700; }
+  .summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .metric { border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; background: #fbfdff; }
+  .metric .name { font-weight: 700; color: #475569; }
+  .metric .number { font-size: 2rem; font-weight: 800; margin: 6px 0; color: #173b70; }
+  .metric .rate { color: #64748b; font-size: .9rem; }
+  .algo { border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; margin-top: 14px; }
+  .algo-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; padding: 14px 16px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; }
+  .algo-head h3 { margin: 0; color: #173b70; }
+  .scroll { overflow-x: auto; padding: 12px; }
+  table { border-collapse: separate; border-spacing: 5px; min-width: 100%; font-size: .9rem; }
+  th, td { text-align: center; padding: 9px 10px; min-width: 42px; border-radius: 6px; }
+  th { background: #e2e8f0; color: #334155; }
+  td { background: #f1f5f9; }
+  td.fault { background: #fee2e2; color: #991b1b; font-weight: 700; }
+  td.hit { background: #dcfce7; color: #166534; font-weight: 700; }
+  .legend { font-size: .86rem; color: #64748b; margin: 8px 0 0; }
+  .winner { display: inline-block; border-radius: 999px; padding: 5px 9px; background: #dcfce7; color: #166534; font-size: .78rem; font-weight: 700; }
+  .empty { color: #64748b; text-align: center; padding: 24px 10px; }
+  footer { text-align: center; color: #64748b; font-size: .85rem; padding: 10px 16px 28px; }
+  @media (max-width: 700px) {
+    .controls { grid-template-columns: 1fr; }
+    .summary { grid-template-columns: 1fr; }
+    .panel { padding: 15px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Page Replacement Simulation</h1>
+  <p>Visualize FIFO, LRU, and Optimal algorithms and compare page faults</p>
+</header>
+<main>
+  <section class="panel">
+    <h2>Simulation Inputs</h2>
+    <div class="controls">
+      <div>
+        <label for="pages">Page reference string</label>
+        <input id="pages" value="1 2 3 2 4 1 5" placeholder="Example: 1 2 3 2 4 1 5">
+      </div>
+      <div>
+        <label for="frames">Number of frames</label>
+        <input id="frames" type="number" min="1" max="10" value="3">
+      </div>
+      <button id="run">Run simulation</button>
+    </div>
+    <p class="hint">Enter page numbers separated by spaces or commas. Limits: 1–50 page references and 1–10 frames.</p>
+    <div id="error" class="error" role="alert"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Results comparison</h2>
+    <div id="summary" class="summary">
+      <div class="empty">Run the simulation to see page faults.</div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Step-by-step frame tables</h2>
+    <p class="hint">Red cells indicate page faults; green cells indicate page hits.</p>
+    <div id="tables"><div class="empty">Your simulation steps will appear here.</div></div>
+  </section>
+</main>
+<footer>Operating Systems Lab • Virtual Memory • Page Replacement Algorithms</footer>
+
+<script>
+function simulateFIFO(pages, frameCount) {
+  const frames = Array(frameCount).fill(null);
+  let pointer = 0, faults = 0;
+  const steps = [];
+  pages.forEach(page => {
+    const hit = frames.includes(page);
+    if (!hit) {
+      frames[pointer] = page;
+      pointer = (pointer + 1) % frameCount;
+      faults++;
+    }
+    steps.push({ page, frames: [...frames], hit, fault: !hit });
+  });
+  return { faults, steps };
+}
+
+function simulateLRU(pages, frameCount) {
+  const frames = Array(frameCount).fill(null);
+  const lastUsed = new Map();
+  let faults = 0;
+  const steps = [];
+  pages.forEach((page, i) => {
+    const index = frames.indexOf(page);
+    const hit = index !== -1;
+    if (hit) {
+      lastUsed.set(page, i);
+    } else {
+      let target = frames.indexOf(null);
+      if (target === -1) {
+        target = 0;
+        for (let j = 1; j < frameCount; j++) {
+          if (lastUsed.get(frames[j]) < lastUsed.get(frames[target])) target = j;
+        }
+      }
+      frames[target] = page;
+      lastUsed.set(page, i);
+      faults++;
+    }
+    steps.push({ page, frames: [...frames], hit, fault: !hit });
+  });
+  return { faults, steps };
+}
+
+function simulateOptimal(pages, frameCount) {
+  const frames = Array(frameCount).fill(null);
+  let faults = 0;
+  const steps = [];
+  pages.forEach((page, i) => {
+    const hit = frames.includes(page);
+    if (!hit) {
+      let target = frames.indexOf(null);
+      if (target === -1) {
+        let farthest = -1;
+        target = 0;
+        frames.forEach((loadedPage, j) => {
+          const nextUse = pages.indexOf(loadedPage, i + 1);
+          if (nextUse === -1) {
+            target = j;
+            farthest = Infinity;
+          } else if (nextUse > farthest && farthest !== Infinity) {
+            farthest = nextUse;
+            target = j;
+          }
+        });
+      }
+      frames[target] = page;
+      faults++;
+    }
+    steps.push({ page, frames: [...frames], hit, fault: !hit });
+  });
+  return { faults, steps };
+}
+
+function renderTable(name, result, pages, frameCount, best) {
+  let html = `<div class="algo"><div class="algo-head"><h3>${name}</h3><span><strong>${result.faults}</strong> page faults${best ? ' <span class="winner">Fewest faults</span>' : ''}</span></div><div class="scroll"><table><thead><tr><th>Frame / Page</th>${pages.map((p, i) => `<th title="Step ${i + 1}">${p}</th>`).join('')}</tr></thead><tbody>`;
+  for (let f = 0; f < frameCount; f++) {
+    html += `<tr><th>Frame ${f + 1}</th>`;
+    result.steps.forEach(step => {
+      const value = step.frames[f] === null ? '–' : step.frames[f];
+      html += `<td class="${step.fault ? 'fault' : 'hit'}">${value}</td>`;
+    });
+    html += '</tr>';
+  }
+  html += `<tr><th>Status</th>${result.steps.map(s => `<td class="${s.fault ? 'fault' : 'hit'}">${s.fault ? 'Fault' : 'Hit'}</td>`).join('')}</tr>`;
+  html += '</tbody></table></div></div>';
+  return html;
+}
+
+function runSimulation() {
+  const error = document.getElementById('error');
+  error.textContent = '';
+  const raw = document.getElementById('pages').value.trim();
+  const pages = raw.split(/[\s,]+/).filter(Boolean).map(Number);
+  const frameCount = Number(document.getElementById('frames').value);
+
+  if (!raw || pages.some(p => !Number.isInteger(p) || p < 0) || pages.length > 50 || pages.length < 1) {
+    error.textContent = 'Enter 1–50 valid non-negative page numbers separated by spaces or commas.';
+    return;
+  }
+  if (!Number.isInteger(frameCount) || frameCount < 1 || frameCount > 10) {
+    error.textContent = 'Number of frames must be between 1 and 10.';
+    return;
+  }
+
+  const results = [
+    { name: 'FIFO', result: simulateFIFO(pages, frameCount) },
+    { name: 'LRU', result: simulateLRU(pages, frameCount) },
+    { name: 'Optimal', result: simulateOptimal(pages, frameCount) }
+  ];
+  const minFaults = Math.min(...results.map(r => r.result.faults));
+  document.getElementById('summary').innerHTML = results.map(({name, result}) => `
+    <div class="metric">
+      <div class="name">${name}${result.faults === minFaults ? ' <span class="winner">Fewest</span>' : ''}</div>
+      <div class="number">${result.faults}</div>
+      <div class="rate">${(result.faults / pages.length * 100).toFixed(1)}% page-fault rate</div>
+    </div>`).join('');
+  document.getElementById('tables').innerHTML = results.map(({name, result}) =>
+    renderTable(name, result, pages, frameCount, result.faults === minFaults)
+  ).join('');
+}
+
+document.getElementById('run').addEventListener('click', runSimulation);
+document.getElementById('pages').addEventListener('keydown', e => { if (e.key === 'Enter') runSimulation(); });
+document.getElementById('frames').addEventListener('keydown', e => { if (e.key === 'Enter') runSimulation(); });
+runSimulation();
+</script>
+</body>
+</html>
